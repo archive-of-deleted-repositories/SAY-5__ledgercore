@@ -5,6 +5,7 @@
 #include <unistd.h>
 
 #include <cerrno>
+#include <cstring>
 #include <fstream>
 #include <vector>
 
