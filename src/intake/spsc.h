@@ -38,12 +38,22 @@ public:
     SpscRing(const SpscRing&) = delete;
     SpscRing& operator=(const SpscRing&) = delete;
 
-    // Producer side.
+    ~SpscRing() {
+        // Drain any live slots so non-trivial T destructors fire exactly once.
+        const std::uint64_t head = head_.load(std::memory_order_relaxed);
+        const std::uint64_t tail = tail_.load(std::memory_order_relaxed);
+        for (std::uint64_t i = tail; i != head; ++i) {
+            slot_ptr(i)->~T();
+        }
+    }
+
+    // Producer side. Constructs the slot in place; the matching destruction
+    // happens on the consumer side at try_pop().
     bool try_push(T value) noexcept {
         const std::uint64_t head = head_.load(std::memory_order_relaxed);
         const std::uint64_t tail = tail_.load(std::memory_order_acquire);
         if (head - tail >= Capacity) return false;
-        slot(head) = std::move(value);
+        ::new (raw(head)) T(std::move(value));
         head_.store(head + 1, std::memory_order_release);
         return true;
     }
@@ -53,7 +63,9 @@ public:
         const std::uint64_t tail = tail_.load(std::memory_order_relaxed);
         const std::uint64_t head = head_.load(std::memory_order_acquire);
         if (tail == head) return false;
-        out = std::move(slot(tail));
+        T* p = slot_ptr(tail);
+        out = std::move(*p);
+        p->~T();
         tail_.store(tail + 1, std::memory_order_release);
         return true;
     }
@@ -68,8 +80,11 @@ public:
     static constexpr std::size_t capacity() noexcept { return Capacity; }
 
 private:
-    T& slot(std::uint64_t idx) noexcept {
-        return *std::launder(reinterpret_cast<T*>(&storage_[idx & (Capacity - 1)]));
+    void* raw(std::uint64_t idx) noexcept {
+        return static_cast<void*>(&storage_[idx & (Capacity - 1)]);
+    }
+    T* slot_ptr(std::uint64_t idx) noexcept {
+        return std::launder(reinterpret_cast<T*>(&storage_[idx & (Capacity - 1)]));
     }
 
     // Storage cell: explicit aligned byte buffer. std::aligned_storage_t is
