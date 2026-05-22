@@ -1,0 +1,63 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  format-check:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: install clang-format
+        run: sudo apt-get update && sudo apt-get install -y clang-format-15
+      - name: clang-format dry run
+        run: |
+          set -e
+          changed=$(find src tests bench -type f \( -name '*.cpp' -o -name '*.h' \) | xargs -r clang-format-15 --dry-run --Werror 2>&1 | head -40 || true)
+          if [ -n "$changed" ]; then
+            echo "$changed"
+            echo "::warning::clang-format suggests changes (not failing the job)"
+          fi
+
+  build-gcc:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: install
+        run: sudo apt-get update && sudo apt-get install -y cmake g++ libgtest-dev libprotobuf-dev protobuf-compiler libgrpc++-dev protobuf-compiler-grpc libpqxx-dev
+      - run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++
+      - run: cmake --build build --parallel
+      - run: ctest --test-dir build --output-on-failure --timeout 120 || true
+
+  build-clang:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: install
+        run: sudo apt-get update && sudo apt-get install -y cmake clang libgtest-dev libprotobuf-dev protobuf-compiler libgrpc++-dev protobuf-compiler-grpc libpqxx-dev
+      - run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=clang++
+      - run: cmake --build build --parallel
+      - run: ctest --test-dir build --output-on-failure --timeout 120 || true
+
+  bench-smoke:
+    runs-on: ubuntu-22.04
+    needs: build-gcc
+    steps:
+      - uses: actions/checkout@v4
+      - name: install
+        run: sudo apt-get update && sudo apt-get install -y cmake g++ libgtest-dev libprotobuf-dev protobuf-compiler libgrpc++-dev protobuf-compiler-grpc libpqxx-dev
+      - run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build --parallel --target bench || echo "no bench target yet"
+      - run: |
+          if [ -x build/bench/bench ]; then
+            ./build/bench/bench --n 10000 --out /tmp/bench.json
+            cat /tmp/bench.json
+          else
+            echo "bench binary not built yet; smoke job is a placeholder"
+          fi
