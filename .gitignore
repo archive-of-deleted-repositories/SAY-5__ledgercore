@@ -13,8 +13,8 @@ compile_commands.json
 *.swp
 *.swo
 .DS_Store
-core
-core.*
+/core
+/core.*
 *.log
 *.pid
 bench/results/bench_local_tmp.json
