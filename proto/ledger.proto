@@ -1,0 +1,73 @@
+syntax = "proto3";
+
+package ledgercore.v1;
+
+option cc_enable_arenas = true;
+
+// LedgerService — intake API for the ledger. Synchronous request/response;
+// the server only acknowledges once the transaction is committed (or
+// rejected, or recognized as a replay).
+service LedgerService {
+    rpc Submit(SubmitRequest) returns (SubmitResponse);
+    rpc Balance(BalanceRequest) returns (BalanceResponse);
+    rpc OpenAccount(OpenAccountRequest) returns (OpenAccountResponse);
+}
+
+message Line {
+    uint64 account = 1;
+    int64  amount  = 2;  // strictly > 0 (sign is implied by debit/credit)
+}
+
+message Transaction {
+    string         idempotency_key = 1;
+    repeated Line  debits          = 2;
+    repeated Line  credits         = 3;
+    string         memo            = 4;
+}
+
+message SubmitRequest {
+    Transaction txn = 1;
+}
+
+enum Outcome {
+    OUTCOME_UNSPECIFIED = 0;
+    OUTCOME_COMMITTED   = 1;
+    OUTCOME_REJECTED    = 2;
+    OUTCOME_REPLAYED    = 3;
+}
+
+enum RejectReason {
+    REASON_NONE                  = 0;
+    REASON_UNBALANCED            = 1;
+    REASON_EMPTY_LINES           = 2;
+    REASON_NON_POSITIVE_AMOUNT   = 3;
+    REASON_DUPLICATE_ACCOUNT     = 4;
+    REASON_UNKNOWN_ACCOUNT       = 5;
+    REASON_INSUFFICIENT_FUNDS    = 6;
+    REASON_OVERFLOW              = 7;
+}
+
+message SubmitResponse {
+    Outcome      outcome          = 1;
+    RejectReason reason           = 2;
+    uint64       txn_id           = 3;
+    bool         idempotency_hit  = 4;
+}
+
+message OpenAccountRequest {
+    uint64 account = 1;
+    int64  opening = 2;
+}
+
+message OpenAccountResponse {
+    bool ok = 1;
+}
+
+message BalanceRequest {
+    uint64 account = 1;
+}
+
+message BalanceResponse {
+    bool   exists  = 1;
+    int64  balance = 2;
+}
